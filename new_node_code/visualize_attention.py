@@ -295,6 +295,7 @@ def _save(fig, path: str, dpi: int):
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     fig.savefig(path, dpi=dpi, bbox_inches='tight')
+    fig.savefig(f'{path[:-4]}.eps', bbox_inches='tight')
     print(f"  Saved: {path}")
     plt.close(fig)
 
