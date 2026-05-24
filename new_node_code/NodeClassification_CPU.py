@@ -720,7 +720,7 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    
+
     # Load dataset
     data_path = '../dataset/'
     if args.dataset == 'Cora':
@@ -731,11 +731,11 @@ def main():
         dataset = datasets.Planetoid(root=data_path, name='PubMed')
     elif args.dataset in ['Cornell', 'Texas', 'Wisconsin']:
         dataset = datasets.WebKB(root=data_path, name=args.dataset)
-    
+
     data = dataset[0]
     num_classes = dataset.num_classes
     data = select_split_masks(data, args.split_index)
-    
+
     print(f"Dataset: {args.dataset}")
     print(f"Split index: {args.split_index}")
     print(f"Number of nodes: {data.num_nodes}")
@@ -751,14 +751,14 @@ def main():
     print(f"Training nodes: {data.train_mask.sum().item()}")
     print(f"Validation nodes: {data.val_mask.sum().item()}")
     print(f"Test nodes: {data.test_mask.sum().item()}")
-    
+
     # Optionally cluster features before kernel computation.
     if args.cluster_wl_features:
         print("\n!!! Applying Feature Clustering for Kernel Computation !!!")
         print("This discretizes high-dimensional features to help WL kernel learn meaningful similarities.")
         from sklearn.cluster import MiniBatchKMeans
         from sklearn.preprocessing import normalize
-        
+
         # Determine number of clusters
         if args.n_clusters is not None:
             n_clusters = args.n_clusters
@@ -770,21 +770,21 @@ def main():
                 n_clusters = 128  # Medium size, balance granularity
             else:
                 n_clusters = 50   # Small datasets like Cornell
-        
+
         print(f"Clustering features into {n_clusters} clusters (fitted on all data)...")
-        
+
         # CPU clustering - normalize features before clustering to improve KMeans
         features_np = data.x.cpu().numpy()
         features_norm = normalize(features_np, axis=1)
-        
+
         # Fit KMeans on all data
         kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=256, n_init='auto')
         clusters = kmeans.fit_predict(features_norm)
-        
+
         # Convert to One-Hot Tensor
         cluster_features = torch.zeros(data.num_nodes, n_clusters)
-        cluster_features.scatter_(1, torch.tensor(clusters).unsqueeze(1), 1.0)
-        
+        cluster_features.scatter_(1, torch.tensor(clusters, dtype=torch.long).unsqueeze(1), 1.0)
+
         # Create a temporary data object with clustered features for kernel computation only.
         data_for_kernel = copy.copy(data)
         data_for_kernel.x = cluster_features
@@ -800,23 +800,23 @@ def main():
         kernel_type = args.kernels[head]
         wl = args.wl if kernel_type == 'WL' else None
         gl = args.GL_k if kernel_type == 'GL' else None
-        
+
         # Determine hop for this specific head
         if args.hops and head < len(args.hops):
             current_hop = args.hops[head]
         else:
             current_hop = args.hop
-            
+
         if args.cluster_wl_features:
             cache_suffix = f"_clustered_{n_clusters}"
         else:
             cache_suffix = ""
-            
+
         kernel_cache_path = 'cache/pe_node/{}/{}_{}_{}_{}{}.pkl'.format(
             args.dataset, kernel_type, wl, gl, current_hop, cache_suffix)
-        
+
         node_kernels = load_kernel(kernel_cache_path)
-        
+
         if node_kernels is None:
             # Only extract subgraphs if we need to compute at least one kernel
             if current_hop not in hop_subgraphs_cache:
@@ -832,14 +832,14 @@ def main():
             print(f"Loaded cached {kernel_type} kernel (head {head+1}/{args.numheads}, hop {current_hop})")
             if args.cluster_wl_features:
                 print("(Note: This kernel was computed using clustered features)")
-        
+
         all_kernel_results.append(node_kernels)
-    
+
     # Prepare PE matrix for all nodes
     if args.numheads == 1:
         pe_matrix = torch.tensor(all_kernel_results[0], dtype=torch.float)
     else:
-        pe_matrix = torch.stack([torch.tensor(all_kernel_results[h], dtype=torch.float) 
+        pe_matrix = torch.stack([torch.tensor(all_kernel_results[h], dtype=torch.float)
                                 for h in range(args.numheads)])
 
     # Ablation study: Discard structural prior
@@ -860,14 +860,14 @@ def main():
 
     # All node features
     all_node_features = data.x
-    
+
     # Laplacian PE (optional)
     lap_matrix = None
     if args.lappe and args.lap_dim > 0:
         lap_pos_encoder = LapEncoding(args.lap_dim, normalization='sym')
         # Compute LAP for the entire graph
         lap_matrix = lap_pos_encoder.compute_pe(data)
-    
+
     # Compute adj and degree
     adj = to_dense_adj(data.edge_index, max_num_nodes=data.num_nodes)[0]
     deg = degree(data.edge_index[0], data.num_nodes)
@@ -876,23 +876,23 @@ def main():
     train_indices = data.train_mask.nonzero(as_tuple=True)[0].tolist()
     val_indices = data.val_mask.nonzero(as_tuple=True)[0].tolist()
     test_indices = data.test_mask.nonzero(as_tuple=True)[0].tolist()
-    
+
     # Create datasets
-    train_dataset = NodeSubgraphDataset(data, train_indices, all_node_features, 
+    train_dataset = NodeSubgraphDataset(data, train_indices, all_node_features,
                                        pe_matrix, adj, deg, lap_matrix, args.numheads)
-    val_dataset = NodeSubgraphDataset(data, val_indices, all_node_features, 
+    val_dataset = NodeSubgraphDataset(data, val_indices, all_node_features,
                                      pe_matrix, adj, deg, lap_matrix, args.numheads)
-    test_dataset = NodeSubgraphDataset(data, test_indices, all_node_features, 
+    test_dataset = NodeSubgraphDataset(data, test_indices, all_node_features,
                                       pe_matrix, adj, deg, lap_matrix, args.numheads)
-    
+
     # Create dataloaders (batch_size=1 since we process the whole graph at once)
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, 
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False,
                              collate_fn=train_dataset.collate_fn())
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, 
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False,
                            collate_fn=val_dataset.collate_fn())
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, 
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False,
                             collate_fn=test_dataset.collate_fn())
-    
+
     # Initialize model - use node feature dimension
     input_size = data.num_features
     model = GraphTransformerNode(in_size=input_size,  # Use node feature dimension
@@ -910,7 +910,7 @@ def main():
                             gate_activation=args.gate_activation).to(device)
 
     print("Total number of parameters: {}".format(count_parameters(model)))
-    
+
     # Training setup
     if args.optimizer == 'Adam':
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -918,18 +918,18 @@ def main():
         optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
     else:
         raise ValueError(f"Unsupported optimizer: {args.optimizer}")
-    
+
     criterion = nn.CrossEntropyLoss()
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', 
-                                                                factor=0.5, patience=20, 
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
+                                                                factor=0.5, patience=20,
                                                                 min_lr=1e-5)
-    
+
     # CSV logging
     csv_file = open(args.outdir + '/results.csv', 'w', newline='')
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(['Epoch', 'Train Loss', 'Train Accuracy', 
+    csv_writer.writerow(['Epoch', 'Train Loss', 'Train Accuracy',
                         'Val Loss', 'Val Accuracy', 'Best Epoch', 'Best Accuracy'])
-    
+
     # Training loop
     best_loss = float('inf')
     best_epoch = 0
@@ -938,15 +938,14 @@ def main():
     val_acc_list = []
     train_loss_list = []
     val_loss_list = []
-    
+
     start_time = time.time()
-    for epoch in range(args.epochs):
-        print(f'Epoch: {epoch}/{args.epochs}, LR: {optimizer.param_groups[0]["lr"]}')
-        
+    pbar = tqdm(range(args.epochs), desc='Training', unit='epoch')
+    for epoch in pbar:
         train_loss, train_acc, _ = train(train_loader, model, criterion, optimizer)
         val_loss, val_acc = val(val_loader, model, criterion)
         lr_scheduler.step(val_loss)
-        
+
         if val_loss < best_loss:
             best_loss = val_loss
             best_epoch = epoch
@@ -955,16 +954,22 @@ def main():
         else:
             patience_counter += 1
             if patience_counter >= args.patience:
-                print(f'Early stopping at epoch {epoch}')
+                pbar.set_postfix_str('early stop')
                 break
-        
+
         train_acc_list.append(train_acc)
         val_acc_list.append(val_acc)
         train_loss_list.append(train_loss)
         val_loss_list.append(val_loss)
-        
-        print(f'Epoch: {epoch:03d}, Train loss: {train_loss:.4f}, Val loss: {val_loss:.4f}, '
-              f'Train acc: {train_acc:.4f}, Val acc: {val_acc:.4f}, Best loss: {best_loss:.4f}')
+
+        pbar.set_postfix({
+            'tr_loss': f'{train_loss:.4f}',
+            'val_loss': f'{val_loss:.4f}',
+            'tr_acc': f'{train_acc:.4f}',
+            'val_acc': f'{val_acc:.4f}',
+            'best': f'{best_loss:.4f}',
+            'lr': f'{optimizer.param_groups[0]["lr"]:.2e}',
+        })
         csv_writer.writerow([epoch, train_loss, train_acc, val_loss, val_acc, best_epoch, best_loss])
 
     end_time = time.time()
