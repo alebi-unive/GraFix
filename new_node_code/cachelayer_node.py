@@ -22,8 +22,17 @@ import warnings
 
 from torch import nn
 
+_GATE_ACTIVATIONS = {
+    "sigmoid": torch.sigmoid,
+    "tanh_shifted": lambda x: (torch.tanh(x) + 1.0) * 0.5,  # maps to (0,1) like sigmoid but sharper
+    "relu": lambda x: torch.relu(x),                          # sparse gate, unbounded above
+    "softplus": F.softplus,                                    # smooth relu, always positive
+    "tanh_abs": lambda x: torch.tanh(x).abs(),                # |tanh|, maps to [0,1]
+}
+
+
 class SimplifiedAttention(nn.Module):
-    def __init__(self, embed_dim, dropout_p=0.0, num_heads=1, gate_mode="symmetric"):
+    def __init__(self, embed_dim, dropout_p=0.0, num_heads=1, gate_mode="symmetric", gate_activation="sigmoid"):
         super(SimplifiedAttention, self).__init__()
         self.embed_dim = embed_dim
         self.dropout_p = dropout_p
@@ -32,18 +41,21 @@ class SimplifiedAttention(nn.Module):
         if gate_mode not in valid_gate_modes:
             raise ValueError(f"Invalid gate_mode '{gate_mode}'. Expected one of {sorted(valid_gate_modes)}.")
         self.gate_mode = gate_mode
+        if gate_activation not in _GATE_ACTIVATIONS:
+            raise ValueError(f"Invalid gate_activation '{gate_activation}'. Expected one of {sorted(_GATE_ACTIVATIONS)}.")
+        self.gate_activation = _GATE_ACTIVATIONS[gate_activation]
 
         self.in_proj_weight = nn.Parameter(torch.Tensor(embed_dim, embed_dim))
         self.in_proj_bias = nn.Parameter(torch.Tensor(embed_dim))
         self.out_proj_weight = nn.Parameter(torch.Tensor(embed_dim, embed_dim))
         self.out_proj_bias = nn.Parameter(torch.Tensor(embed_dim))
-        
+
         if self.gate_mode == "symmetric":
             self.gate = nn.Linear(embed_dim, num_heads)
         elif self.gate_mode == "asymmetric":
             self.gate_src = nn.Linear(embed_dim, num_heads)
             self.gate_dst = nn.Linear(embed_dim, num_heads)
-        
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -82,7 +94,7 @@ class SimplifiedAttention(nn.Module):
             g = self.gate(h)
             gate_score = g.unsqueeze(2) + g.unsqueeze(1)
             gate_score = gate_score.permute(0, 3, 1, 2)
-            modulation = torch.sigmoid(gate_score)
+            modulation = self.gate_activation(gate_score)
             pre_norm_weights = attn_output_weights * modulation
             modulated_weights = pre_norm_weights / (pre_norm_weights.sum(dim=-1, keepdim=True) + 1e-6)
         elif self.gate_mode == "asymmetric":
@@ -91,7 +103,7 @@ class SimplifiedAttention(nn.Module):
             g_dst = self.gate_dst(h)
             gate_score = g_src.unsqueeze(2) + g_dst.unsqueeze(1)
             gate_score = gate_score.permute(0, 3, 1, 2)
-            modulation = torch.sigmoid(gate_score)
+            modulation = self.gate_activation(gate_score)
             pre_norm_weights = attn_output_weights * modulation
             modulated_weights = pre_norm_weights / (pre_norm_weights.sum(dim=-1, keepdim=True) + 1e-6)
         else:
@@ -100,13 +112,13 @@ class SimplifiedAttention(nn.Module):
             modulated_weights = pre_norm_weights / (pre_norm_weights.sum(dim=-1, keepdim=True) + 1e-6)
 
         # 2. Aggregate using modulated weights
-        attn_output = torch.einsum("bhij,bhjd->bhid", modulated_weights, v_proj) 
+        attn_output = torch.einsum("bhij,bhjd->bhid", modulated_weights, v_proj)
         #[bsz, num_heads, num_nodes, dim]
 
         attn_output = attn_output.permute(2, 0, 1, 3).reshape(tgt_len, bsz, embed_dim)
         #[num_node, bsz, dim]
         attn_output = F.linear(attn_output, self.out_proj_weight, self.out_proj_bias)
-        
+
         if need_gate_modulation:
             if need_weights and need_pre_norm_attention:
                 return attn_output, modulated_weights, modulation, pre_norm_weights
@@ -128,14 +140,14 @@ class SimplifiedAttention(nn.Module):
 
 class DiffTransformerEncoderLayer(nn.TransformerEncoderLayer):
     def __init__(self, d_model, dim_feedforward=2048, dropout=0.1,
-                 activation="relu", batch_norm=True, nb_heads=1, gate_mode="symmetric"):
+                 activation="relu", batch_norm=True, nb_heads=1, gate_mode="symmetric", gate_activation="sigmoid"):
         super().__init__(d_model, nhead=nb_heads,  # nhead is set to 1 as it's unused in SimplifiedAttention
                          dim_feedforward=dim_feedforward, dropout=dropout, activation=activation)
         self.n_heads = nb_heads
 
-        self.self_attn = SimplifiedAttention(d_model, num_heads=self.n_heads, gate_mode=gate_mode)
-        self.self_attn.batch_first = False  
-        self.self_attn._qkv_same_embed_dim = True  
+        self.self_attn = SimplifiedAttention(d_model, num_heads=self.n_heads, gate_mode=gate_mode, gate_activation=gate_activation)
+        self.self_attn.batch_first = False
+        self.self_attn._qkv_same_embed_dim = True
         self.batch_norm = batch_norm
         if batch_norm:
             self.norm1 = nn.BatchNorm1d(d_model)
@@ -175,7 +187,7 @@ class DiffTransformerEncoderLayer(nn.TransformerEncoderLayer):
         if return_pre_norm_attention:
             pre_norm_attention = attention_outputs[output_idx]
         if degree is not None:
-            src2 = degree.transpose(0, 1).contiguous().unsqueeze(-1) * src2 
+            src2 = degree.transpose(0, 1).contiguous().unsqueeze(-1) * src2
         src = src + self.dropout1(src2)
 
         if self.batch_norm:

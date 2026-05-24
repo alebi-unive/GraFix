@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from timeit import default_timer as timer
 import csv
-import time 
+import time
 import argparse
 import copy
 from utils import save_kernel, load_kernel, count_parameters, LapEncoding, compute_node_kernel_CPU
@@ -32,30 +32,30 @@ def str2bool(value):
 
 
 def load_args():
-    parser = argparse.ArgumentParser(description='Graph Kernel Transformer Node Classification', 
+    parser = argparse.ArgumentParser(description='Graph Kernel Transformer Node Classification',
                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('--dataset', type=str, default='PubMed', 
+    parser.add_argument('--dataset', type=str, default='PubMed',
                        choices=['Cora', 'CiteSeer', 'PubMed', 'Cornell', 'Texas', 'Wisconsin'],
                        help='Dataset to use')
     parser.add_argument('--split-index', type=int, default=0,
                        help='Split column to use for WebKB multi-split masks.')
     parser.add_argument('--num-layers', type=int, default=1, help="number of layers")
     parser.add_argument('--hop', type=int, default=2, help='Hop for subgraph extraction')
-    parser.add_argument('--hops', nargs='+', type=int, default=None, 
+    parser.add_argument('--hops', nargs='+', type=int, default=None,
                        help='Specific hop for each head, e.g., "3 2". If provided, overrides --hop for kernel computation.')
     parser.add_argument('--numheads', type=int, default=1, help='Number of heads')
     parser.add_argument('--isgnn', type=str2bool, default=True, help='if use GNN as embedding layer')
     parser.add_argument('--lappe', type=str2bool, default=False, help='use laplacian PE')
     parser.add_argument('--lap-dim', type=int, default=2, help='dimension for laplacian PE')
-    parser.add_argument('--kernels', nargs='+', default=['WL', 'SP', 'RW', 'GL'], 
+    parser.add_argument('--kernels', nargs='+', default=['WL', 'SP', 'RW', 'GL'],
                        help='Kernel types for each head, e.g., "WL SP RW"')
-    parser.add_argument('--kernel', type=str, default='WL', 
+    parser.add_argument('--kernel', type=str, default='WL',
                        choices=['SP', 'WL', 'RW','GL'],
                        help='Kernel type')
-    parser.add_argument('--GL_k', type=int, default=5, 
+    parser.add_argument('--GL_k', type=int, default=5,
                        help='The dimension of given Graphlets')
-    parser.add_argument('--dim_hidden', type=int, default=64, 
+    parser.add_argument('--dim_hidden', type=int, default=64,
                        help="hidden dimension of Transformer")
     parser.add_argument('--epochs', type=int, default=300, help='number of epochs')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
@@ -63,11 +63,11 @@ def load_args():
     parser.add_argument('--dropout', type=float, default=0.5, help='drop out rate')
     parser.add_argument('--weight-decay', type=float, default=5e-4, help='weight decay (L2 penalty)')
     parser.add_argument('--patience', type=int, default=300, help='patience for early stopping')
-    parser.add_argument('--optimizer', type=str, default='Adam', choices=['Adam', 'SGD'], 
+    parser.add_argument('--optimizer', type=str, default='Adam', choices=['Adam', 'SGD'],
                        help='optimizer type')
     parser.add_argument('--outdir', type=str, default='', help='output path')
     parser.add_argument('--wl', type=int, default=3, help='WL iteration')
-    parser.add_argument('--batch-norm', action='store_true', 
+    parser.add_argument('--batch-norm', action='store_true',
                        help='use batch norm instead of layer norm')
     parser.add_argument('--ablation-no-kernel', action='store_true',
                        help='Ablation study: Set kernel matrix to all ones to discard structural prior')
@@ -75,6 +75,14 @@ def load_args():
                        help='Use the original model without adjacency fusion and gating mechanism')
     parser.add_argument('--asymmetric-gate', action='store_true',
                        help='Use asymmetric gating with separate source and destination projections')
+    parser.add_argument('--gate-activation', type=str, default='sigmoid',
+                       choices=['sigmoid', 'tanh_shifted', 'relu', 'softplus', 'tanh_abs'],
+                       help='Activation function (sigma) for the gate modulation. '
+                            'sigmoid: standard (0,1) gate (default). '
+                            'tanh_shifted: (tanh+1)/2, similar range but sharper. '
+                            'relu: sparse gate, unbounded above. '
+                            'softplus: smooth relu, always positive. '
+                            'tanh_abs: |tanh|, maps to [0,1].')
     parser.add_argument('--cluster-wl-features', action='store_true',
                        help='Cluster node features before kernel computation. Can be used with both original model and symmetric gating.')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
@@ -106,7 +114,7 @@ def load_args():
 
     if args.original_model and args.asymmetric_gate:
         parser.error('--original-model and --asymmetric-gate are mutually exclusive.')
-    
+
     if args.outdir != '':
         outdir = args.outdir
         if not os.path.exists(outdir):
@@ -114,7 +122,7 @@ def load_args():
         outdir = os.path.join(outdir, args.dataset)
         if not os.path.exists(outdir):
             os.makedirs(outdir)
-        
+
         kernel_names = "_".join(args.kernels[:args.numheads])
         # Include cluster count in filename when clustered kernel features are enabled
         if args.cluster_wl_features:
@@ -132,20 +140,20 @@ def load_args():
         else:
             n_clusters_str = ""
             kernel_feature_mode = "raw"
-        
+
         # Build outdir with cluster info
         if args.cluster_wl_features:
-            outdir = os.path.join(outdir, 
+            outdir = os.path.join(outdir,
                                 f'{args.isgnn}_{args.numheads}_{args.lappe}_{kernel_names}_{args.dim_hidden}_'
                                 f'{args.wl}_{args.GL_k}_{args.num_layers}l_{args.hop}h_{kernel_feature_mode}_'
                                 f'{args.dropout}_{args.lr}_{args.batch_size}')
         else:
-            outdir = os.path.join(outdir, 
+            outdir = os.path.join(outdir,
                                 f'{args.isgnn}_{args.numheads}_{args.lappe}_{kernel_names}_{args.dim_hidden}_'
                                 f'{args.wl}_{args.GL_k}_{args.num_layers}l_{args.hop}h_'
                                 f'{args.dropout}_{args.lr}_{args.batch_size}')
         if not os.path.exists(outdir):
-            os.makedirs(outdir)        
+            os.makedirs(outdir)
         args.outdir = outdir
 
     return args
@@ -162,76 +170,76 @@ class NodeSubgraphDataset(Dataset):
         self.deg = deg
         self.lap_list = lap_list  # LAP for all nodes if available
         self.nb_heads = nb_heads
-        
+
     def __len__(self):
         return 1  # Only one graph, return entire graph each time
-    
+
     def __getitem__(self, idx):
         # Return all nodes' data, but only labels for train/val/test nodes
         labels = self.data.y[self.node_indices]
         return self.all_node_features, self.pe_matrix, self.adj, self.deg, self.lap_list, labels, self.node_indices
-    
+
     def collate_fn(self):
         def collate(batch):
             # batch contains only one item (the entire graph)
             all_features, pe_matrix, adj, deg, lap_list, labels, node_indices = batch[0]
-            
+
             # all_features: (num_nodes, feature_dim)
             # pe_matrix: (num_heads, num_nodes, num_nodes) or (num_nodes, num_nodes)
             # labels: (num_train/val/test_nodes,)
             # node_indices: indices of train/val/test nodes
-            
+
             # Unsqueeze to add batch dimension
             all_features = all_features.unsqueeze(0)  # (1, num_nodes, feature_dim)
             adj = adj.unsqueeze(0) # (1, num_nodes, num_nodes)
-            
+
             if self.nb_heads == 1:
                 # (1, 1, num_nodes, num_nodes)
                 pe_matrix = pe_matrix.unsqueeze(0).unsqueeze(0)
             else:
                 # (1, num_heads, num_nodes, num_nodes)
                 pe_matrix = pe_matrix.unsqueeze(0)
-            
+
             # Create mask (all ones)
             mask = torch.ones_like(pe_matrix)
-            
+
             # LAP
             if lap_list is not None:
                 lap_tensor = lap_list.unsqueeze(0)  # (1, num_nodes, lap_dim)
             else:
                 lap_tensor = None
-            
+
             if deg is not None:
                 deg = deg.unsqueeze(0)
-            
+
             return all_features, adj, mask, pe_matrix, lap_tensor, deg, labels, torch.tensor(node_indices)
-        
+
         return collate
 
 
 def extract_node_subgraphs(data, hop=2):
     """Extract k-hop subgraph for each node"""
     from torch_geometric.utils import k_hop_subgraph
-    
+
     num_nodes = data.num_nodes
     node_subgraphs = []
-    
+
     import gc
     for node_idx in tqdm(range(num_nodes), desc=f"Extracting {hop}-hop subgraphs"):
         subset, edge_index, mapping, edge_mask = k_hop_subgraph(
             node_idx, hop, data.edge_index, relabel_nodes=True, num_nodes=num_nodes
         )
-        
+
         # Create a light-weight Data object for the subgraph
         subgraph_data = Data(x=data.x[subset], edge_index=edge_index)
         subgraph_data.num_nodes = len(subset)
-        
+
         node_subgraphs.append(subgraph_data)
-        
+
         # Periodically clear memory
         if node_idx % 500 == 0:
             gc.collect()
-    
+
     return node_subgraphs
 
 
@@ -276,7 +284,7 @@ def train(loader, model, criterion, optimizer):
     train_corr = 0.0
     total_samples = 0
     start_time = timer()
-    
+
     for all_features, adj, mask, pe_matrix, lap, deg, labels, node_indices in loader:
         all_features = all_features.to(device)
         adj = adj.to(device)
@@ -288,28 +296,28 @@ def train(loader, model, criterion, optimizer):
             deg = deg.to(device)
         labels = labels.to(device)
         node_indices = node_indices.to(device)
-        
+
         optimizer.zero_grad()
         # Forward pass for all nodes
         out = model(all_features, adj, mask, pe_matrix, lap, deg)  # (1, num_nodes, num_classes)
-        
+
         # Extract predictions for train nodes only
         out = out.squeeze(0)[node_indices]  # (num_train_nodes, num_classes)
-        
+
         loss = criterion(out, labels)
         loss.backward()
         optimizer.step()
-        
+
         train_pred = out.data.argmax(dim=1)
         total_loss += loss.item() * len(labels)
         train_corr += torch.sum(train_pred == labels).item()
         total_samples += len(labels)
-    
+
     end_time = timer()
     epoch_time = end_time - start_time
     train_avg_loss = total_loss / total_samples
     train_avg_corr = train_corr / total_samples
-    
+
     return train_avg_loss, train_avg_corr, epoch_time
 
 
@@ -318,7 +326,7 @@ def val(loader, model, criterion):
     val_loss = 0
     val_nums = 0
     corr = 0
-    
+
     with torch.no_grad():
         for all_features, adj, mask, pe_matrix, lap, deg, labels, node_indices in loader:
             all_features = all_features.to(device)
@@ -331,24 +339,24 @@ def val(loader, model, criterion):
                 deg = deg.to(device)
             labels = labels.to(device)
             node_indices = node_indices.to(device)
-            
+
             # Forward pass for all nodes
             out = model(all_features, adj, mask, pe_matrix, lap, deg)  # (1, num_nodes, num_classes)
-            
+
             # Extract predictions for val/test nodes only
             out = out.squeeze(0)[node_indices]  # (num_val_nodes, num_classes)
-            
+
             loss = criterion(out, labels)
             val_loss += loss.item() * len(labels)
             val_nums += len(labels)
-            
+
             pred = out.argmax(dim=-1)
             corr += int((pred == labels).sum())
-    
+
     val_avg_loss = val_loss / val_nums
     val_avg_corr = corr / val_nums  # Changed from len(loader.dataset)
     val_avg_loss = round(val_avg_loss, 3)
-    
+
     return val_avg_loss, val_avg_corr
 
 
@@ -898,8 +906,9 @@ def main():
                             lap_pos_dim=args.lap_dim,
                             nb_heads=args.numheads,
                             GNN=args.isgnn,
-                            gate_mode=gate_mode).to(device)
-    
+                            gate_mode=gate_mode,
+                            gate_activation=args.gate_activation).to(device)
+
     print("Total number of parameters: {}".format(count_parameters(model)))
     
     # Training setup
@@ -957,9 +966,9 @@ def main():
         print(f'Epoch: {epoch:03d}, Train loss: {train_loss:.4f}, Val loss: {val_loss:.4f}, '
               f'Train acc: {train_acc:.4f}, Val acc: {val_acc:.4f}, Best loss: {best_loss:.4f}')
         csv_writer.writerow([epoch, train_loss, train_acc, val_loss, val_acc, best_epoch, best_loss])
-    
+
     end_time = time.time()
-    
+
     # Test
     print(f'Best epoch: {best_epoch}')
     print(f'Best val loss: {best_loss:.4f}')
@@ -1026,14 +1035,14 @@ def main():
             args.seed,
             gate_modulation_output_dir,
         )
-    
+
     csv_writer.writerow(['Test', test_loss, test_acc])
     csv_writer.writerow(['Total Time', end_time - start_time])
     csv_file.close()
-    
+
     if not args.skip_curves:
         plot_curve(train_loss_list, val_loss_list, train_acc_list, val_acc_list, args.outdir)
-    
+
     print(f'Total training time: {end_time - start_time:.2f}s')
 
 

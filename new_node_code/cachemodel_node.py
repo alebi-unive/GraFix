@@ -64,7 +64,7 @@ class DiffTransformerEncoder(nn.TransformerEncoder):
 class GraphTransformerNode(nn.Module):
     """
     GraphTransformer for Node Classification
-    
+
     Key differences from graph classification:
     1. No pooling layer - we need predictions for all nodes
     2. Output shape: (batch_size, num_nodes, num_classes)
@@ -72,7 +72,7 @@ class GraphTransformerNode(nn.Module):
     """
     def __init__(self, in_size, nb_class, d_model,
                  dim_feedforward=512, dropout=0.1, nb_layers=4,
-                 batch_norm=False, lap_pos=False, lap_pos_dim=0, nb_heads=1, GNN=None, gate_mode="symmetric"):
+                 batch_norm=False, lap_pos=False, lap_pos_dim=0, nb_heads=1, GNN=None, gate_mode="symmetric", gate_activation="sigmoid"):
         super(GraphTransformerNode, self).__init__()
 
         self.GNN = GNN
@@ -80,7 +80,7 @@ class GraphTransformerNode(nn.Module):
         self.lap_pos_dim = lap_pos_dim
         self.nb_heads = nb_heads
         self.gate_mode = gate_mode
-        
+
         if self.lap_pos and lap_pos_dim > 0:
             self.embedding_lap_pos = nn.Linear(lap_pos_dim, d_model)
 
@@ -95,12 +95,12 @@ class GraphTransformerNode(nn.Module):
             self.embedding = DenseGraphConv(in_channels=in_size,
                                             out_channels=d_model,
                                             bias=True)
-        
+
         # Transformer encoder layers
         encoder_layer = DiffTransformerEncoderLayer(
-                d_model, dim_feedforward, dropout, batch_norm=batch_norm, nb_heads=nb_heads, gate_mode=gate_mode)
+                d_model, dim_feedforward, dropout, batch_norm=batch_norm, nb_heads=nb_heads, gate_mode=gate_mode, gate_activation=gate_activation)
         self.encoder = DiffTransformerEncoder(encoder_layer, nb_layers)
-        
+
         # Classifier for each node (no pooling)
         self.classifier = nn.Sequential(
             nn.Linear(d_model, d_model),
@@ -128,11 +128,11 @@ class GraphTransformerNode(nn.Module):
             pe: Positional encoding / kernel matrix (batch_size, num_heads, num_nodes, num_nodes)
             lap_pe: Laplacian positional encoding (batch_size, num_nodes, lap_pos_dim)
             degree: Degree matrix/vector if needed by encoder
-        
+
         Returns:
             output: Node predictions (batch_size, num_nodes, nb_class)
         """
-        
+
         # Embed node features
         if self.GNN is None:
             # Permute to transformer convention: (num_nodes, batch_size, in_size)
@@ -143,33 +143,33 @@ class GraphTransformerNode(nn.Module):
             output = self.embedding(x, edge_index)
             # Permute to transformer convention after GNN
             output = output.permute(1, 0, 2) # (num_nodes, batch_size, d_model)
-        
+
         # Add Laplacian PE if available
         if self.lap_pos and self.lap_pos_dim > 0 and lap_pe is not None:
             lap_pe = lap_pe.transpose(0, 1)  # (num_nodes, batch_size, lap_pos_dim)
             lap_pe = self.embedding_lap_pos(lap_pe)
             output = output + lap_pe
-        
+
         # ============================================================
         # Fuse Adjacency Matrix into PE (Kernel) to incorporate local connectivity
         # ============================================================
         # if self.gate_mode != 'none' and edge_index is not None:
         #     # edge_index is passed as Dense Adjacency Matrix: [Batch, N, N]
         #     adj = edge_index.clone()
-            
+
         #     # 1. Add self-loops to ensure nodes attend to themselves
         #     B, N, _ = adj.shape
         #     diag_idx = torch.arange(N, device=adj.device)
         #     adj[:, diag_idx, diag_idx] = 1.0
-            
+
         #     # 2. Row Normalization (D^-1 A) to prevent value explosion
         #     # Similar to GCN aggregation: mean of neighbors
         #     deg_sum = adj.sum(dim=-1, keepdim=True).clamp(min=1e-6)
         #     adj_norm = adj / deg_sum
-            
+
         #     # 3. Expand dimensions to match PE: [Batch, 1, N, N]
         #     adj_expanded = adj_norm.unsqueeze(1)
-            
+
         #     # 4. Fuse: Combine local adjacency with global structural kernel
         #     # We add the normalized adjacency to the kernel matrix.
         #     # This forces the attention mechanism to prioritize local neighbors (homophily),
@@ -179,7 +179,7 @@ class GraphTransformerNode(nn.Module):
 
         # Apply transformer encoder
         # Note: src_key_padding_mask logic might need adjustment depending on how masks are passed
-        # In cachemodel.py, masks are passed as src_key_padding_mask. 
+        # In cachemodel.py, masks are passed as src_key_padding_mask.
         # Assuming masks here is for attention bias or padding mask.
         last_attention = None
         last_gate_modulation = None
@@ -207,13 +207,13 @@ class GraphTransformerNode(nn.Module):
         else:
             output = self.encoder(output, pe, degree=degree, src_key_padding_mask=masks)
         # output: (num_nodes, batch_size, d_model)
-        
+
         # Permute back to (batch_size, num_nodes, d_model)
         output = output.permute(1, 0, 2)
-        
+
         # Classify each node
         output = self.classifier(output)  # (batch_size, num_nodes, nb_class)
-        
+
         outputs = [output]
         if return_attention:
             outputs.append(last_attention)
