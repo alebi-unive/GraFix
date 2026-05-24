@@ -5,3 +5,7 @@ test/
 
 **/*.pyc
 *.prof
+*.png
+*.eps
+*.npz
+*.csv
