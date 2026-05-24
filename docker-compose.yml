@@ -1,0 +1,53 @@
+services:
+  base_torch1:
+    image: ripper346/ggsd:latest
+    container_name: grafix1
+    tty: true
+    environment:
+      - LOGGER_LEVEL=INFO
+    volumes:
+      - ./:/project
+    working_dir: /project
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: [ "0" ]
+              capabilities: [ gpu ]
+
+  base_torch2:
+    image: ripper346/ggsd:latest
+    container_name: grafix2
+    tty: true
+    environment:
+      - LOGGER_LEVEL=INFO
+    volumes:
+      - ./:/project
+    working_dir: /project
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: [ "1" ]
+              capabilities: [ gpu ]
+
+  base_torch_all:
+    image: ripper346/ggsd:latest
+    container_name: grafix
+    tty: true
+    environment:
+      - LOGGER_LEVEL=INFO
+      - NCCL_P2P_DISABLE=1
+      - NCCL_IB_DISABLE=1
+    volumes:
+      - ./:/project
+    working_dir: /project
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: [ "0", "1" ]
+              capabilities: [ gpu ]
