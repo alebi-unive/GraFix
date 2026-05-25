@@ -90,6 +90,12 @@ train_model() {
 
     local outdir="${OUTPUT_ROOT}/${task}/${mode}_${act}"
     local pna_dir="${OUTPUT_ROOT}/${task}/npz/${mode}_${act}"
+    local sentinel="${pna_dir}/${mode}_seed_${SEED}_last_layer_pre_norm_attention.npz"
+
+    if [[ -f "$sentinel" ]]; then
+        echo "  [${task} / ${mode} / ${act}] skipping — already done (${sentinel})"
+        return 0
+    fi
 
     echo "  [${task} / ${mode} / ${act}] training..."
 
