@@ -32,7 +32,7 @@ _GATE_ACTIVATIONS = {
 
 
 class SimplifiedAttention(nn.Module):
-    def __init__(self, embed_dim, dropout_p=0.0, num_heads=1, gate_mode="symmetric", gate_activation="sigmoid"):
+    def __init__(self, embed_dim, dropout_p=0.0, num_heads=1, gate_mode="symmetric", gate_activation="sigmoid", separated_activation=False):
         super(SimplifiedAttention, self).__init__()
         self.embed_dim = embed_dim
         self.dropout_p = dropout_p
@@ -44,6 +44,7 @@ class SimplifiedAttention(nn.Module):
         if gate_activation not in _GATE_ACTIVATIONS:
             raise ValueError(f"Invalid gate_activation '{gate_activation}'. Expected one of {sorted(_GATE_ACTIVATIONS)}.")
         self.gate_activation = _GATE_ACTIVATIONS[gate_activation]
+        self.separated_activation = separated_activation
 
         self.in_proj_weight = nn.Parameter(torch.Tensor(embed_dim, embed_dim))
         self.in_proj_bias = nn.Parameter(torch.Tensor(embed_dim))
@@ -92,18 +93,29 @@ class SimplifiedAttention(nn.Module):
         if self.gate_mode == "symmetric":
             h = value.permute(1, 0, 2)
             g = self.gate(h)
-            gate_score = g.unsqueeze(2) + g.unsqueeze(1)
-            gate_score = gate_score.permute(0, 3, 1, 2)
-            modulation = self.gate_activation(gate_score)
+            if self.separated_activation:
+                # A(i,j) = K(i,j) * sigma(W_gate * h_i) * sigma(W_gate * h_j)
+                g_act = self.gate_activation(g)
+                modulation = (g_act.unsqueeze(2) * g_act.unsqueeze(1)).permute(0, 3, 1, 2)
+            else:
+                # A(i,j) = K(i,j) * sigma(W_gate * (h_i + h_j))
+                gate_score = (g.unsqueeze(2) + g.unsqueeze(1)).permute(0, 3, 1, 2)
+                modulation = self.gate_activation(gate_score)
             pre_norm_weights = attn_output_weights * modulation
             modulated_weights = pre_norm_weights / (pre_norm_weights.sum(dim=-1, keepdim=True) + 1e-6)
         elif self.gate_mode == "asymmetric":
             h = value.permute(1, 0, 2)
             g_src = self.gate_src(h)
             g_dst = self.gate_dst(h)
-            gate_score = g_src.unsqueeze(2) + g_dst.unsqueeze(1)
-            gate_score = gate_score.permute(0, 3, 1, 2)
-            modulation = self.gate_activation(gate_score)
+            if self.separated_activation:
+                # A(i,j) = K(i,j) * sigma(W_src * h_i) * sigma(W_dst * h_j)
+                g_src_act = self.gate_activation(g_src)
+                g_dst_act = self.gate_activation(g_dst)
+                modulation = (g_src_act.unsqueeze(2) * g_dst_act.unsqueeze(1)).permute(0, 3, 1, 2)
+            else:
+                # A(i,j) = K(i,j) * sigma(W_src * h_i + W_dst * h_j)
+                gate_score = (g_src.unsqueeze(2) + g_dst.unsqueeze(1)).permute(0, 3, 1, 2)
+                modulation = self.gate_activation(gate_score)
             pre_norm_weights = attn_output_weights * modulation
             modulated_weights = pre_norm_weights / (pre_norm_weights.sum(dim=-1, keepdim=True) + 1e-6)
         else:
@@ -140,12 +152,12 @@ class SimplifiedAttention(nn.Module):
 
 class DiffTransformerEncoderLayer(nn.TransformerEncoderLayer):
     def __init__(self, d_model, dim_feedforward=2048, dropout=0.1,
-                 activation="relu", batch_norm=True, nb_heads=1, gate_mode="symmetric", gate_activation="sigmoid"):
+                 activation="relu", batch_norm=True, nb_heads=1, gate_mode="symmetric", gate_activation="sigmoid", separated_activation=False):
         super().__init__(d_model, nhead=nb_heads,  # nhead is set to 1 as it's unused in SimplifiedAttention
                          dim_feedforward=dim_feedforward, dropout=dropout, activation=activation)
         self.n_heads = nb_heads
 
-        self.self_attn = SimplifiedAttention(d_model, num_heads=self.n_heads, gate_mode=gate_mode, gate_activation=gate_activation)
+        self.self_attn = SimplifiedAttention(d_model, num_heads=self.n_heads, gate_mode=gate_mode, gate_activation=gate_activation, separated_activation=separated_activation)
         self.self_attn.batch_first = False
         self.self_attn._qkv_same_embed_dim = True
         self.batch_norm = batch_norm

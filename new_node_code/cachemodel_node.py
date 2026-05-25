@@ -72,7 +72,7 @@ class GraphTransformerNode(nn.Module):
     """
     def __init__(self, in_size, nb_class, d_model,
                  dim_feedforward=512, dropout=0.1, nb_layers=4,
-                 batch_norm=False, lap_pos=False, lap_pos_dim=0, nb_heads=1, GNN=None, gate_mode="symmetric", gate_activation="sigmoid"):
+                 batch_norm=False, lap_pos=False, lap_pos_dim=0, nb_heads=1, GNN=None, gate_mode="symmetric", gate_activation="sigmoid", separated_activation=False):
         super(GraphTransformerNode, self).__init__()
 
         self.GNN = GNN
@@ -98,7 +98,7 @@ class GraphTransformerNode(nn.Module):
 
         # Transformer encoder layers
         encoder_layer = DiffTransformerEncoderLayer(
-                d_model, dim_feedforward, dropout, batch_norm=batch_norm, nb_heads=nb_heads, gate_mode=gate_mode, gate_activation=gate_activation)
+                d_model, dim_feedforward, dropout, batch_norm=batch_norm, nb_heads=nb_heads, gate_mode=gate_mode, gate_activation=gate_activation, separated_activation=separated_activation)
         self.encoder = DiffTransformerEncoder(encoder_layer, nb_layers)
 
         # Classifier for each node (no pooling)

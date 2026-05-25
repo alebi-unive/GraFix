@@ -75,6 +75,11 @@ def load_args():
                        help='Use the original model without adjacency fusion and gating mechanism')
     parser.add_argument('--asymmetric-gate', action='store_true',
                        help='Use asymmetric gating with separate source and destination projections')
+    parser.add_argument('--separated-activation', action='store_true',
+                       help='Apply gate activation separately to each node before combining: '
+                            'symmetric: sigma(W*h_i)*sigma(W*h_j); '
+                            'asymmetric: sigma(W_src*h_i)*sigma(W_dst*h_j). '
+                            'Without this flag (default), activation is applied to the sum: sigma(W*h_i + W*h_j).')
     parser.add_argument('--gate-activation', type=str, default='sigmoid',
                        choices=['sigmoid', 'tanh_shifted', 'relu', 'softplus', 'tanh_abs'],
                        help='Activation function (sigma) for the gate modulation. '
@@ -114,6 +119,8 @@ def load_args():
 
     if args.original_model and args.asymmetric_gate:
         parser.error('--original-model and --asymmetric-gate are mutually exclusive.')
+    if args.original_model and args.separated_activation:
+        parser.error('--original-model and --separated-activation are mutually exclusive.')
 
     if args.outdir != '':
         outdir = args.outdir
@@ -142,16 +149,21 @@ def load_args():
             kernel_feature_mode = "raw"
 
         # Build outdir with cluster info
+        gate_suffix = ''
+        if args.separated_activation and not args.original_model:
+            _gm = 'asymmetric' if args.asymmetric_gate else 'symmetric'
+            gate_suffix = f'_gate-{_gm}_mul'
+
         if args.cluster_wl_features:
             outdir = os.path.join(outdir,
                                 f'{args.isgnn}_{args.numheads}_{args.lappe}_{kernel_names}_{args.dim_hidden}_'
                                 f'{args.wl}_{args.GL_k}_{args.num_layers}l_{args.hop}h_{kernel_feature_mode}_'
-                                f'{args.dropout}_{args.lr}_{args.batch_size}')
+                                f'{args.dropout}_{args.lr}_{args.batch_size}{gate_suffix}')
         else:
             outdir = os.path.join(outdir,
                                 f'{args.isgnn}_{args.numheads}_{args.lappe}_{kernel_names}_{args.dim_hidden}_'
                                 f'{args.wl}_{args.GL_k}_{args.num_layers}l_{args.hop}h_'
-                                f'{args.dropout}_{args.lr}_{args.batch_size}')
+                                f'{args.dropout}_{args.lr}_{args.batch_size}{gate_suffix}')
         if not os.path.exists(outdir):
             os.makedirs(outdir)
         args.outdir = outdir
@@ -743,10 +755,17 @@ def main():
     print(f"Number of classes: {num_classes}")
     gate_mode_labels = {
         'none': 'Original model (no gate, no adjacency fusion)',
-        'symmetric': 'Symmetric gating',
-        'asymmetric': 'Asymmetric gating',
+        'symmetric': 'Symmetric gating: sigma(W*(h_i + h_j))',
+        'asymmetric': 'Asymmetric gating: sigma(W_src*h_i + W_dst*h_j)',
     }
-    print(f"Model type: {gate_mode_labels[gate_mode]}")
+    if args.separated_activation and gate_mode != 'none':
+        mul_labels = {
+            'symmetric':  'Symmetric gating (separated): sigma(W*h_i) * sigma(W*h_j)',
+            'asymmetric': 'Asymmetric gating (separated): sigma(W_src*h_i) * sigma(W_dst*h_j)',
+        }
+        print(f"Model type: {mul_labels[gate_mode]}")
+    else:
+        print(f"Model type: {gate_mode_labels[gate_mode]}")
     print(f"Clustered kernel features: {args.cluster_wl_features}")
     print(f"Training nodes: {data.train_mask.sum().item()}")
     print(f"Validation nodes: {data.val_mask.sum().item()}")
@@ -907,7 +926,8 @@ def main():
                             nb_heads=args.numheads,
                             GNN=args.isgnn,
                             gate_mode=gate_mode,
-                            gate_activation=args.gate_activation).to(device)
+                            gate_activation=args.gate_activation,
+                            separated_activation=args.separated_activation).to(device)
 
     print("Total number of parameters: {}".format(count_parameters(model)))
 
