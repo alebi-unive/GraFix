@@ -18,83 +18,195 @@
     ],
     "datasets": {
         "Cora": {
-            "symmetric": {
-                "hidden": 64,
-                "wl": 5,
-                "layers": 2,
-                "hop": 3,
-                "C": 32,
-                "dropout": 0.2,
-                "lr": 0.001
-            },
-            "asymmetric": {
-                "hidden": 128,
-                "wl": 5,
-                "layers": 1,
-                "hop": 3,
-                "C": 32,
-                "dropout": 0.0,
-                "lr": 0.001
+            "dataset": "Cora",
+            "modes": {
+                "symmetric": {
+                    "hidden": 64,
+                    "wl": 5,
+                    "layers": 2,
+                    "hop": 3,
+                    "C": 32,
+                    "dropout": 0.2,
+                    "lr": 0.001
+                },
+                "asymmetric": {
+                    "hidden": 128,
+                    "wl": 5,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 32,
+                    "dropout": 0.0,
+                    "lr": 0.001
+                }
             }
         },
         "CiteSeer": {
-            "symmetric": {
-                "hidden": 128,
-                "wl": 5,
-                "layers": 1,
-                "hop": 2,
-                "C": 32,
-                "dropout": 0.0,
-                "lr": 0.001
-            },
-            "asymmetric": {
-                "hidden": 128,
-                "wl": 3,
-                "layers": 1,
-                "hop": 2,
-                "C": 32,
-                "dropout": 0.2,
-                "lr": 0.001
+            "dataset": "CiteSeer",
+            "modes": {
+                "symmetric": {
+                    "hidden": 128,
+                    "wl": 5,
+                    "layers": 1,
+                    "hop": 2,
+                    "C": 32,
+                    "dropout": 0.0,
+                    "lr": 0.001
+                },
+                "asymmetric": {
+                    "hidden": 128,
+                    "wl": 3,
+                    "layers": 1,
+                    "hop": 2,
+                    "C": 32,
+                    "dropout": 0.2,
+                    "lr": 0.001
+                }
             }
         },
         "PubMed": {
-            "symmetric": {
-                "hidden": 64,
-                "wl": 3,
-                "layers": 1,
-                "hop": 3,
-                "C": 64,
-                "dropout": 0.2,
-                "lr": 0.001
-            },
-            "asymmetric": {
-                "hidden": 64,
-                "wl": 4,
-                "layers": 1,
-                "hop": 3,
-                "C": 64,
-                "dropout": 0.2,
-                "lr": 0.001
+            "dataset": "PubMed",
+            "modes": {
+                "symmetric": {
+                    "hidden": 64,
+                    "wl": 3,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 64,
+                    "dropout": 0.2,
+                    "lr": 0.001
+                },
+                "asymmetric": {
+                    "hidden": 64,
+                    "wl": 4,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 64,
+                    "dropout": 0.2,
+                    "lr": 0.001
+                }
             }
         },
         "Texas": {
-            "symmetric": {
-                "hidden": 32,
-                "wl": 3,
-                "layers": 3,
-                "hop": 3,
-                "C": 64,
-                "dropout": 0.2,
-                "lr": 0.01
-            },
-            "asymmetric": {
-                "hidden": 128,
-                "wl": 5,
-                "layers": 1,
-                "hop": 3,
-                "C": 16,
-                "dropout": 0.0,
-                "lr": 0.01
+            "dataset": "Texas",
+            "modes": {
+                "symmetric": {
+                    "hidden": 32,
+                    "wl": 3,
+                    "layers": 3,
+                    "hop": 3,
+                    "C": 64,
+                    "dropout": 0.2,
+                    "lr": 0.01
+                },
+                "asymmetric": {
+                    "hidden": 128,
+                    "wl": 5,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 16,
+                    "dropout": 0.0,
+                    "lr": 0.01
+                }
+            }
+        },
+        "CoraMul": {
+            "dataset": "Cora",
+            "modes": {
+                "symmetric": {
+                    "hidden": 64,
+                    "wl": 5,
+                    "layers": 2,
+                    "hop": 3,
+                    "C": 32,
+                    "dropout": 0.2,
+                    "lr": 0.001,
+                    "separated-activation": true
+                },
+                "asymmetric": {
+                    "hidden": 128,
+                    "wl": 5,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 32,
+                    "dropout": 0.0,
+                    "lr": 0.001,
+                    "separated-activation": true
+                }
+            }
+        },
+        "CiteSeerMul": {
+            "dataset": "CiteSeer",
+            "modes": {
+                "symmetric": {
+                    "hidden": 128,
+                    "wl": 5,
+                    "layers": 1,
+                    "hop": 2,
+                    "C": 32,
+                    "dropout": 0.0,
+                    "lr": 0.001,
+                    "separated-activation": true
+                },
+                "asymmetric": {
+                    "hidden": 128,
+                    "wl": 3,
+                    "layers": 1,
+                    "hop": 2,
+                    "C": 32,
+                    "dropout": 0.2,
+                    "lr": 0.001,
+                    "separated-activation": true
+                }
+            }
+        },
+        "PubMedMul": {
+            "dataset": "PubMed",
+            "modes": {
+                "symmetric": {
+                    "hidden": 64,
+                    "wl": 3,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 64,
+                    "dropout": 0.2,
+                    "lr": 0.001,
+                    "separated-activation": true
+                },
+                "asymmetric": {
+                    "hidden": 64,
+                    "wl": 4,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 64,
+                    "dropout": 0.2,
+                    "lr": 0.001,
+                    "separated-activation": true
+                }
+            }
+        },
+        "TexasMul": {
+            "dataset": "Texas",
+            "modes": {
+                "symmetric": {
+                    "hidden": 32,
+                    "wl": 3,
+                    "layers": 3,
+                    "hop": 3,
+                    "C": 64,
+                    "dropout": 0.2,
+                    "lr": 0.01,
+                    "separated-activation": true
+                },
+                "asymmetric": {
+                    "hidden": 128,
+                    "wl": 5,
+                    "layers": 1,
+                    "hop": 3,
+                    "C": 16,
+                    "dropout": 0.0,
+                    "lr": 0.01,
+                    "separated-activation": true
+                }
             }
         }
     }

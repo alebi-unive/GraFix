@@ -62,27 +62,43 @@ fi
 
 # train_model <dataset> <mode: symmetric|asymmetric> <gate_activation>
 train_model() {
-    local dataset="$1"
+    local task="$1"
     local mode="$2"
     local act="$3"
 
-    local hidden layers hop wl C dropout lr
-    hidden=$(jq -r  ".datasets.\"${dataset}\".\"${mode}\".hidden"  "$CONFIG_JSON")
-    layers=$(jq -r  ".datasets.\"${dataset}\".\"${mode}\".layers"  "$CONFIG_JSON")
-    hop=$(jq -r     ".datasets.\"${dataset}\".\"${mode}\".hop"     "$CONFIG_JSON")
-    wl=$(jq -r      ".datasets.\"${dataset}\".\"${mode}\".wl"      "$CONFIG_JSON")
-    C=$(jq -r       ".datasets.\"${dataset}\".\"${mode}\".C"       "$CONFIG_JSON")
-    dropout=$(jq -r ".datasets.\"${dataset}\".\"${mode}\".dropout" "$CONFIG_JSON")
-    lr=$(jq -r      ".datasets.\"${dataset}\".\"${mode}\".lr"      "$CONFIG_JSON")
+    local dataset hidden layers hop wl C dropout lr sep_act
+    dataset=$(jq -r ".datasets.\"${task}\".dataset"                          "$CONFIG_JSON")
+    hidden=$(jq -r  ".datasets.\"${task}\".modes.\"${mode}\".hidden"         "$CONFIG_JSON")
+    layers=$(jq -r  ".datasets.\"${task}\".modes.\"${mode}\".layers"         "$CONFIG_JSON")
+    hop=$(jq -r     ".datasets.\"${task}\".modes.\"${mode}\".hop"            "$CONFIG_JSON")
+    wl=$(jq -r      ".datasets.\"${task}\".modes.\"${mode}\".wl"             "$CONFIG_JSON")
+    C=$(jq -r       ".datasets.\"${task}\".modes.\"${mode}\".C"              "$CONFIG_JSON")
+    dropout=$(jq -r ".datasets.\"${task}\".modes.\"${mode}\".dropout"        "$CONFIG_JSON")
+    lr=$(jq -r      ".datasets.\"${task}\".modes.\"${mode}\".lr"             "$CONFIG_JSON")
+    sep_act=$(jq -r ".datasets.\"${task}\".modes.\"${mode}\".\"separated-activation\" // false" "$CONFIG_JSON")
 
-    local outdir="${OUTPUT_ROOT}/${dataset}/${mode}_${act}"
-    local pna_dir="${OUTPUT_ROOT}/${dataset}/npz/${mode}_${act}"
+    # Validate: fail loudly before passing null/empty values to Python
+    local _field _val
+    for _field in dataset hidden layers hop wl C dropout lr; do
+        _val="${!_field}"
+        if [[ "$_val" == "null" || -z "$_val" ]]; then
+            echo "Error: .datasets.${task}.modes.${mode}.${_field} is missing or null in ${CONFIG_JSON}" >&2
+            echo "       Check that all required keys exist for task '${task}' mode '${mode}'." >&2
+            exit 1
+        fi
+    done
 
-    echo "  [${dataset} / ${mode} / ${act}] training..."
+    local outdir="${OUTPUT_ROOT}/${task}/${mode}_${act}"
+    local pna_dir="${OUTPUT_ROOT}/${task}/npz/${mode}_${act}"
+
+    echo "  [${task} / ${mode} / ${act}] training..."
 
     local extra_args=()
     if [[ "$mode" == "asymmetric" ]]; then
         extra_args+=(--asymmetric-gate)
+    fi
+    if [[ "$sep_act" == "true" ]]; then
+        extra_args+=(--separated-activation)
     fi
 
     "$PYTHON_BIN" NodeClassification_CPU.py \
@@ -111,22 +127,23 @@ train_model() {
         --outdir         "$outdir"       \
         --skip-curves
 
-    echo "  [${dataset} / ${mode} / ${act}] done."
+    echo "  [${task} / ${mode} / ${act}] done."
 }
 
 # visualize_pair <dataset> <gate_activation>
 # Plots symmetric vs asymmetric heatmap for a single activation.
 visualize_pair() {
-    local dataset="$1"
+    local task="$1"
     local act="$2"
+    local dataset=$(jq -r ".datasets.\"${task}\".dataset" "$CONFIG_JSON")
     local ds_lower="${dataset,,}"
 
-    local sym_npz="${OUTPUT_ROOT}/${dataset}/npz/symmetric_${act}/symmetric_seed_${SEED}_last_layer_pre_norm_attention.npz"
-    local asym_npz="${OUTPUT_ROOT}/${dataset}/npz/asymmetric_${act}/asymmetric_seed_${SEED}_last_layer_pre_norm_attention.npz"
-    local out_dir="${OUTPUT_ROOT}/${dataset}/plots/${act}"
+    local sym_npz="${OUTPUT_ROOT}/${task}/npz/symmetric_${act}/symmetric_seed_${SEED}_last_layer_pre_norm_attention.npz"
+    local asym_npz="${OUTPUT_ROOT}/${task}/npz/asymmetric_${act}/asymmetric_seed_${SEED}_last_layer_pre_norm_attention.npz"
+    local out_dir="${OUTPUT_ROOT}/${task}/plots/${act}"
     mkdir -p "$out_dir"
 
-    echo "  [${dataset} / visualize / ${act}] symmetric vs asymmetric..."
+    echo "  [${task} / visualize / ${act}] symmetric vs asymmetric..."
     "$PYTHON_BIN" visualize_attention.py \
         --npz          "$sym_npz" "$asym_npz"                          \
         --dataset      "$dataset"                                       \
@@ -134,33 +151,34 @@ visualize_pair() {
         --titles       "${dataset} symmetric (${act})" "${dataset} asymmetric (${act})" \
         --out          "${out_dir}/${ds_lower}_sym_vs_asym_${act}.png"  \
         --extra-plots  all
-    echo "  [${dataset} / visualize / ${act}] done."
+    echo "  [${task} / visualize / ${act}] done."
 }
 
 # visualize_all_activations <dataset> <mode: symmetric|asymmetric>
 # Plots a cross-activation comparison panel for one mode.
 visualize_all_activations() {
-    local dataset="$1"
+    local task="$1"
     local mode="$2"
-    local ds_lower="${dataset,,}"
-    local out_dir="${OUTPUT_ROOT}/${dataset}/plots"
+    local dataset="$3"
+    local ds_lower="${task,,}"
+    local out_dir="${OUTPUT_ROOT}/${task}/plots"
 
     local npzs=()
     local titles=()
     for act in "${GATE_ACTIVATIONS[@]}"; do
-        npzs+=("${OUTPUT_ROOT}/${dataset}/npz/${mode}_${act}/${mode}_seed_${SEED}_last_layer_pre_norm_attention.npz")
+        npzs+=("${OUTPUT_ROOT}/${task}/npz/${mode}_${act}/${mode}_seed_${SEED}_last_layer_pre_norm_attention.npz")
         titles+=("${mode} / ${act}")
     done
 
-    echo "  [${dataset} / cross-activation / ${mode}]..."
+    echo "  [${task} / cross-activation / ${mode}]..."
     "$PYTHON_BIN" visualize_attention.py \
         --npz         "${npzs[@]}"                                                    \
         --dataset     "$dataset"                                                       \
         --matrix-key  pre_norm_attention_head_0                                        \
         --titles      "${titles[@]}"                                                   \
-        --out         "${out_dir}/${ds_lower}_${mode}_all_activations.png"             \
+        --out         "${out_dir}/${task}_${mode}_all_activations.png"             \
         --extra-plots class-agg entropy same-cross-class
-    echo "  [${dataset} / cross-activation / ${mode}] done."
+    echo "  [${task} / cross-activation / ${mode}] done."
 }
 
 # ─── main loop ────────────────────────────────────────────────────────────────
@@ -168,36 +186,36 @@ mkdir -p "$OUTPUT_ROOT"
 
 mapfile -t DATASETS < <(jq -r '.datasets | keys[]' "$CONFIG_JSON")
 
-for DATASET in "${DATASETS[@]}"; do
+for TASK in "${DATASETS[@]}"; do
     echo ""
     echo "╔══════════════════════════════════════════════════════╗"
-    echo "  Dataset: ${DATASET}"
+    echo "  Dataset: ${TASK}"
     echo "╚══════════════════════════════════════════════════════╝"
 
-    mkdir -p "${OUTPUT_ROOT}/${DATASET}/npz" "${OUTPUT_ROOT}/${DATASET}/plots"
+    mkdir -p "${OUTPUT_ROOT}/${TASK}/npz" "${OUTPUT_ROOT}/${TASK}/plots"
 
     # read the modes defined for this dataset
-    mapfile -t MODES < <(jq -r ".datasets.\"${DATASET}\" | keys[]" "$CONFIG_JSON")
+    mapfile -t MODES < <(jq -r ".datasets.\"${TASK}\".\"modes\" | keys[]" "$CONFIG_JSON")
 
     # per-activation: train all modes then visualize the sym/asym pair
     for ACT in "${GATE_ACTIVATIONS[@]}"; do
         echo ""
         echo "  ── Gate activation: ${ACT} ──"
         for MODE in "${MODES[@]}"; do
-            train_model "$DATASET" "$MODE" "$ACT"
+            train_model "$TASK" "$MODE" "$ACT"
         done
         # visualize only if both symmetric and asymmetric exist
         if [[ " ${MODES[*]} " == *" symmetric "* ]] && [[ " ${MODES[*]} " == *" asymmetric "* ]]; then
-            visualize_pair "$DATASET" "$ACT"
+            visualize_pair "$TASK" "$ACT"
         fi
     done
 
     # cross-activation comparison panel per mode
-    echo ""
-    echo "  ── Cross-activation comparisons ──"
-    for MODE in "${MODES[@]}"; do
-        visualize_all_activations "$DATASET" "$MODE"
-    done
+    # echo ""
+    # echo "  ── Cross-activation comparisons ──"
+    # for MODE in "${MODES[@]}"; do
+    #     visualize_all_activations "$TASK" "$MODE"
+    # done
 done
 
 echo ""
