@@ -1,0 +1,101 @@
+{
+    "common": {
+        "seed": 42,
+        "split_index": 0,
+        "epochs": 1000,
+        "patience": 200,
+        "numheads": 1,
+        "GL_k": 5,
+        "batch_size": 32,
+        "kernels": "WL"
+    },
+    "gate_activations": [
+        "sigmoid",
+        "tanh_shifted",
+        "relu",
+        "softplus",
+        "tanh_abs"
+    ],
+    "datasets": {
+        "Cora": {
+            "symmetric": {
+                "hidden": 64,
+                "wl": 5,
+                "layers": 2,
+                "hop": 3,
+                "C": 32,
+                "dropout": 0.2,
+                "lr": 0.001
+            },
+            "asymmetric": {
+                "hidden": 128,
+                "wl": 5,
+                "layers": 1,
+                "hop": 3,
+                "C": 32,
+                "dropout": 0.0,
+                "lr": 0.001
+            }
+        },
+        "CiteSeer": {
+            "symmetric": {
+                "hidden": 128,
+                "wl": 5,
+                "layers": 1,
+                "hop": 2,
+                "C": 32,
+                "dropout": 0.0,
+                "lr": 0.001
+            },
+            "asymmetric": {
+                "hidden": 128,
+                "wl": 3,
+                "layers": 1,
+                "hop": 2,
+                "C": 32,
+                "dropout": 0.2,
+                "lr": 0.001
+            }
+        },
+        "PubMed": {
+            "symmetric": {
+                "hidden": 64,
+                "wl": 3,
+                "layers": 1,
+                "hop": 3,
+                "C": 64,
+                "dropout": 0.2,
+                "lr": 0.001
+            },
+            "asymmetric": {
+                "hidden": 64,
+                "wl": 4,
+                "layers": 1,
+                "hop": 3,
+                "C": 64,
+                "dropout": 0.2,
+                "lr": 0.001
+            }
+        },
+        "Texas": {
+            "symmetric": {
+                "hidden": 32,
+                "wl": 3,
+                "layers": 3,
+                "hop": 3,
+                "C": 64,
+                "dropout": 0.2,
+                "lr": 0.01
+            },
+            "asymmetric": {
+                "hidden": 128,
+                "wl": 5,
+                "layers": 1,
+                "hop": 3,
+                "C": 16,
+                "dropout": 0.0,
+                "lr": 0.01
+            }
+        }
+    }
+}
