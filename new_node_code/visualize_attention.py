@@ -100,7 +100,7 @@ def plot_single(ax, matrix: np.ndarray, order: np.ndarray, title: str, vmax=None
 # Extra plot: C×C class-aggregated attention
 # ---------------------------------------------------------------------------
 
-def class_aggregated_matrix(mat: np.ndarray, labels: np.ndarray) -> np.ndarray:
+def class_aggregated_matrix(mat: np.ndarray, labels: np.ndarray, mode: str = 'mean') -> np.ndarray:
     """
     For each (class_src, class_dst) pair compute the mean attention value.
     Returns a (C, C) matrix.
@@ -112,11 +112,18 @@ def class_aggregated_matrix(mat: np.ndarray, labels: np.ndarray) -> np.ndarray:
         src_idx = np.where(labels == ci)[0]
         for j, cj in enumerate(classes):
             dst_idx = np.where(labels == cj)[0]
-            agg[i, j] = mat[np.ix_(src_idx, dst_idx)].mean()
+            sel = mat[np.ix_(src_idx, dst_idx)]
+            if mode in ('sum', 'row_norm'):
+                agg[i, j] = sel.sum()
+            else:
+                agg[i, j] = sel.mean()
+    if mode == 'row_norm':
+        row_sums = agg.sum(axis=1, keepdims=True)
+        agg = agg / row_sums
     return agg.astype(np.float32)
 
 
-def plot_class_agg(out_path: str, matrices: list, labels: np.ndarray,
+def plot_class_agg_mean(out_path: str, matrices: list, labels: np.ndarray,
                    titles: list, dpi: int):
     """Save a C×C class-aggregated attention heatmap for each model."""
     n = len(matrices)
@@ -125,12 +132,14 @@ def plot_class_agg(out_path: str, matrices: list, labels: np.ndarray,
     class_ticks = [str(c) for c in classes]
 
     agg_mats = [class_aggregated_matrix(m, labels) for m in matrices]
-    shared_vmax = max(float(np.nanpercentile(a, 99)) for a in agg_mats)
+    use_shared_vmax = False
+    shared_vmax = max(float(np.nanpercentile(a, 99)) for a in agg_mats) if use_shared_vmax else None
 
     for i, (agg, title) in enumerate(zip(agg_mats, titles)):
         ax = axes[0][i]
+        max_value = float(agg.max()) if not use_shared_vmax else shared_vmax
         im = ax.imshow(agg, aspect='auto', cmap='viridis',
-                       vmin=0.0, vmax=shared_vmax, interpolation='nearest')
+                       vmin=0.0, vmax=max_value, interpolation='nearest')
         ax.set_xticks(range(len(classes)))
         ax.set_yticks(range(len(classes)))
         ax.set_xticklabels(class_ticks)
@@ -143,11 +152,54 @@ def plot_class_agg(out_path: str, matrices: list, labels: np.ndarray,
         # Annotate cells with values
         for r in range(len(classes)):
             for c in range(len(classes)):
-                ax.text(c, r, f'{agg[r, c]:.3f}',
+                ax.text(c, r, f'{agg[r, c]:.3g}',
                         ha='center', va='center', fontsize=7,
-                        color='white' if agg[r, c] < shared_vmax * 0.6 else 'black')
+                        color='white' if agg[r, c] < max_value * 0.6 else 'black')
 
-    fig.suptitle('Class-aggregated attention: does the gate focus within-class?', y=1.01)
+    fig.suptitle('Class-aggregated attention', y=1.01)
+    plt.tight_layout()
+    _save(fig, out_path, dpi)
+
+
+def plot_class_agg_sum(out_path: str, matrices: list, labels: np.ndarray,
+                   titles: list, dpi: int):
+    """Save a C×C row-normalised attention heatmap for each model.
+
+    Each cell agg[i, j] is the fraction of total attention emitted by
+    class-i nodes that lands on class-j nodes.  Rows sum to 1, so the
+    diagonal can be read directly as a homophily score.
+    """
+    n = len(matrices)
+    fig, axes = plt.subplots(1, n, figsize=(5 * n, 4), squeeze=False)
+    classes = np.unique(labels)
+    class_ticks = [str(c) for c in classes]
+
+    agg_mats = [class_aggregated_matrix(m, labels, 'row_norm') for m in matrices]
+
+    for i, (agg, title) in enumerate(zip(agg_mats, titles)):
+        ax = axes[0][i]
+        max_value = float(agg.max())
+        im = ax.imshow(agg, aspect='auto', cmap='viridis',
+                       vmin=0.0, vmax=max_value, interpolation='nearest')
+        ax.set_xticks(range(len(classes)))
+        ax.set_yticks(range(len(classes)))
+        ax.set_xticklabels(class_ticks)
+        ax.set_yticklabels(class_ticks)
+        ax.set_xlabel('Destination class')
+        ax.set_ylabel('Source class')
+        ax.set_title(f'{title}\n(row-normalised: fraction of attention per source class)')
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+        # Annotate cells with percentage
+        for r in range(len(classes)):
+            for c in range(len(classes)):
+                ax.text(c, r, f'{agg[r, c]:.3g}',
+                        ha='center', va='center', fontsize=7,
+                        color='white' if agg[r, c] < max_value * 0.6 else 'black')
+
+    fig.suptitle('Row-normalised class attention\n'
+                 '(each row = fraction of total attention sent to each class; diagonal = homophily)',
+                 y=1.03)
     plt.tight_layout()
     _save(fig, out_path, dpi)
 
@@ -191,7 +243,7 @@ def plot_symmetry_scatter(out_path: str, matrices: list, titles: list,
         ax.set_ylim(0, lim)
         ax.set_xlabel('A(i, j)')
         ax.set_ylabel('A(j, i)')
-        ax.set_title(f'{title}\nMean |A(i,j)−A(j,i)| = {sym_dev:.4f}')
+        ax.set_title(f'{title}\nMean |A(i,j)−A(j,i)| = {sym_dev:.4g}')
         ax.legend(fontsize=8)
         ax.set_aspect('equal')
 
@@ -221,7 +273,7 @@ def plot_entropy(out_path: str, matrices: list, titles: list, dpi: int):
         ent = node_entropy(mat)
         mean_ent = float(ent.mean())
         ax.hist(ent, bins=60, alpha=0.6, density=True,
-                label=f'{title}  (mean={mean_ent:.2f})')
+                label=f'{title}  (mean={mean_ent:.2g})')
 
     ax.set_xlabel('Per-node entropy H(i)')
     ax.set_ylabel('Density')
@@ -273,11 +325,11 @@ def plot_same_cross_class(out_path: str, matrices: list, labels: np.ndarray,
 
         ax.set_xticks([0, 1])
         ax.set_xticklabels([
-            f'Same class\n(mean={mean_same:.4f})',
-            f'Cross class\n(mean={mean_cross:.4f})',
+            f'Same class\n(mean={mean_same:.4g})',
+            f'Cross class\n(mean={mean_cross:.4g})',
         ])
         ax.set_ylabel('Attention value A(i, j)')
-        ax.set_title(f'{title}\nSame/Cross ratio = {ratio:.2f}')
+        ax.set_title(f'{title}\nSame/Cross ratio = {ratio:.2g}')
 
     fig.suptitle('Same-class vs cross-class attention distribution\n'
                  '(higher same/cross ratio = gate suppresses inter-class attention)',
@@ -395,7 +447,7 @@ def main():
     matrices = []
     for f, title in zip(npz_files, titles):
         mat = load_matrix(f, args.matrix_key)
-        print(f"  [{title}] shape={mat.shape}, min={mat.min():.4f}, max={mat.max():.4f}")
+        print(f"  [{title}] shape={mat.shape}, min={mat.min():.4g}, max={mat.max():.4g}")
         matrices.append(mat)
 
     # ---- Sorted heatmap (always) ----------------------------------------
@@ -413,8 +465,12 @@ def main():
     # ---- Extra plots --------------------------------------------------------
     if 'class-agg' in extra:
         print("\nGenerating class-aggregated matrix...")
-        plot_class_agg(
+        plot_class_agg_mean(
             _extra_path(args.out, 'class_agg'),
+            matrices, labels, titles, args.dpi,
+        )
+        plot_class_agg_sum(
+            _extra_path(args.out, 'class_agg_sum'),
             matrices, labels, titles, args.dpi,
         )
 
