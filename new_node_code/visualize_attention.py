@@ -358,6 +358,15 @@ def _extra_path(base_out: str, suffix: str) -> str:
     return f"{stem}_{suffix}{ext}"
 
 
+def _iter_subsets(n: int):
+    """Yield (indices, suffix) for each single panel and each pair."""
+    for i in range(n):
+        yield [i], f'single_{i}'
+    for i in range(n):
+        for j in range(i + 1, n):
+            yield [i, j], f'pair_{i}_{j}'
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -462,6 +471,24 @@ def main():
     plt.tight_layout()
     _save(fig, args.out, args.dpi)
 
+    # ---- Individual and paired sorted heatmaps --------------------------
+    if n > 1:
+        print("\nGenerating individual and paired sorted heatmaps...")
+        for idxs, lbl in _iter_subsets(n):
+            sub_mats = [matrices[k] for k in idxs]
+            sub_titles = [titles[k] for k in idxs]
+            m = len(idxs)
+            fig_sub, axes_sub = plt.subplots(1, m, figsize=(7 * m, 6), squeeze=False)
+            sub_vmax = args.vmax
+            if sub_vmax is None and m > 1:
+                stacked = np.concatenate([sm.ravel() for sm in sub_mats])
+                sub_vmax = float(np.nanpercentile(stacked, 99))
+            for k, (mat, title) in enumerate(zip(sub_mats, sub_titles)):
+                vmax_k = sub_vmax if sub_vmax is not None else float(np.nanpercentile(mat, 99))
+                plot_single(axes_sub[0][k], mat, order, title, vmax=vmax_k)
+            plt.tight_layout()
+            _save(fig_sub, _extra_path(args.out, lbl), args.dpi)
+
     # ---- Extra plots --------------------------------------------------------
     if 'class-agg' in extra:
         print("\nGenerating class-aggregated matrix...")
@@ -473,6 +500,18 @@ def main():
             _extra_path(args.out, 'class_agg_sum'),
             matrices, labels, titles, args.dpi,
         )
+        if n > 1:
+            for idxs, lbl in _iter_subsets(n):
+                sub_mats = [matrices[k] for k in idxs]
+                sub_titles = [titles[k] for k in idxs]
+                plot_class_agg_mean(
+                    _extra_path(args.out, f'class_agg_{lbl}'),
+                    sub_mats, labels, sub_titles, args.dpi,
+                )
+                plot_class_agg_sum(
+                    _extra_path(args.out, f'class_agg_sum_{lbl}'),
+                    sub_mats, labels, sub_titles, args.dpi,
+                )
 
     if 'symmetry-scatter' in extra:
         print("\nGenerating symmetry scatter...")
@@ -480,6 +519,14 @@ def main():
             _extra_path(args.out, 'symmetry_scatter'),
             matrices, titles, args.dpi,
         )
+        if n > 1:
+            for idxs, lbl in _iter_subsets(n):
+                sub_mats = [matrices[k] for k in idxs]
+                sub_titles = [titles[k] for k in idxs]
+                plot_symmetry_scatter(
+                    _extra_path(args.out, f'symmetry_scatter_{lbl}'),
+                    sub_mats, sub_titles, args.dpi,
+                )
 
     if 'entropy' in extra:
         print("\nGenerating entropy distribution...")
@@ -487,6 +534,14 @@ def main():
             _extra_path(args.out, 'entropy'),
             matrices, titles, args.dpi,
         )
+        if n > 1:
+            for idxs, lbl in _iter_subsets(n):
+                sub_mats = [matrices[k] for k in idxs]
+                sub_titles = [titles[k] for k in idxs]
+                plot_entropy(
+                    _extra_path(args.out, f'entropy_{lbl}'),
+                    sub_mats, sub_titles, args.dpi,
+                )
 
     if 'same-cross-class' in extra:
         print("\nGenerating same-class vs cross-class violin...")
@@ -494,6 +549,14 @@ def main():
             _extra_path(args.out, 'same_cross_class'),
             matrices, labels, titles, args.dpi,
         )
+        if n > 1:
+            for idxs, lbl in _iter_subsets(n):
+                sub_mats = [matrices[k] for k in idxs]
+                sub_titles = [titles[k] for k in idxs]
+                plot_same_cross_class(
+                    _extra_path(args.out, f'same_cross_class_{lbl}'),
+                    sub_mats, labels, sub_titles, args.dpi,
+                )
 
     print("\nDone.")
 
